@@ -1,6 +1,6 @@
 {
     "properties": {
-        "roleName": "Elevance-TFAML",
+        "roleName": "ServicePrincipalRole",
         "description": "",
         "assignableScopes": [
             "/subscriptions/<your subscription ID here>"
