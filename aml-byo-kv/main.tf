@@ -72,17 +72,17 @@ terraform {
         }
 }
 
-## Provider 1: Signed in identity with the Elevance-TFContrib Role
+## Provider 1: Signed in identity with contributor role
 provider "azurerm" {
-    alias            = "elevance_tfcontrib"
+    alias            = "identity_provider"
     subscription_id  = var.subscriptionId
     features {}
 }
 
-## Provider 2: Service Principal (can be dynamically set via Hashi Vault) to leverage for the AML deployment.
-##              This role JSON can be found in elevance-tfaml-role.json in this directory.
+## Provider 2: Service Principal to leverage for the AML deployment.
+##              This provider uses credentials that can be set dynamically.
 provider "azurerm" {
-    alias            = "elevance_tfaml"
+    alias            = "service_principal_provider"
     subscription_id  = var.subscriptionId
     client_id        = var.aml_client_id
     client_secret    = var.aml_client_secret
@@ -91,30 +91,30 @@ provider "azurerm" {
 }
 
 ########## Data Sources ##########
-data "azurerm_user_assigned_identity" "kv-uai-for-aml" {
-        provider            = azurerm.elevance_tfcontrib
+data "azurerm_user_assigned_identity" "user_identity" {
+        provider            = azurerm.identity_provider
         name                = var.kv_uai_name
         resource_group_name = var.kv_uai_rg_name
 }
 
-data "azurerm_resource_group" "amlws-demo" {
-        provider = azurerm.elevance_tfcontrib
+data "azurerm_resource_group" "workspace_rg" {
+        provider = azurerm.identity_provider
         name     = var.resource_group_name
 }
 
-data "azurerm_key_vault" "aml_kv" {
-        provider            = azurerm.elevance_tfaml
+data "azurerm_key_vault" "key_vault" {
+        provider            = azurerm.service_principal_provider
         name                = var.key_vault_name
         resource_group_name = var.key_vault_rg_name
 }
 
 ########## Resources ##########
-## Demonstrate the service principals provisioning resources in parallel, single deployment
+## Example of provisioning resources in parallel using multiple providers
 resource "azurerm_application_insights" "aml_insights" {
-        provider            = azurerm.elevance_tfcontrib
+        provider            = azurerm.identity_provider
         name                = var.app_insights_name
         location            = var.location
-        resource_group_name = data.azurerm_resource_group.amlws-demo.name
+        resource_group_name = data.azurerm_resource_group.workspace_rg.name
         application_type    = "web"
         lifecycle {
                 ignore_changes = [
@@ -124,28 +124,27 @@ resource "azurerm_application_insights" "aml_insights" {
 }
 
 resource "azurerm_storage_account" "aml_storage" {
-        provider                 = azurerm.elevance_tfcontrib
+        provider                 = azurerm.identity_provider
         name                     = var.storage_account_name
         location                 = var.location
-        resource_group_name      = data.azurerm_resource_group.amlws-demo.name
+        resource_group_name      = data.azurerm_resource_group.workspace_rg.name
         account_tier             = "Standard"
         account_replication_type = "GRS"
 }
 
-## The following resource is a demonstration of the service principal's ability to create the resource using
-#   the Hashi Vault stored dynamic credential, which has preconfigured role assignment for AML creation.
+## The following resource demonstrates creating a machine learning workspace using a service principal
 resource "azurerm_machine_learning_workspace" "aml_workspace" {
-        provider                    = azurerm.elevance_tfaml
+        provider                    = azurerm.service_principal_provider
         name                        = var.aml_workspace_name
         location                    = var.location
-        resource_group_name         = data.azurerm_resource_group.amlws-demo.name
+        resource_group_name         = data.azurerm_resource_group.workspace_rg.name
         application_insights_id     = azurerm_application_insights.aml_insights.id
-        key_vault_id                = data.azurerm_key_vault.aml_kv.id
+        key_vault_id                = data.azurerm_key_vault.key_vault.id
         storage_account_id          = azurerm_storage_account.aml_storage.id
-        primary_user_assigned_identity = data.azurerm_user_assigned_identity.kv-uai-for-aml.id
+        primary_user_assigned_identity = data.azurerm_user_assigned_identity.user_identity.id
 
         identity {
                 type         = "UserAssigned"
-                identity_ids = [data.azurerm_user_assigned_identity.kv-uai-for-aml.id]
+                identity_ids = [data.azurerm_user_assigned_identity.user_identity.id]
         }
 }
